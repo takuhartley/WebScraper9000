@@ -42,7 +42,9 @@ def categorize_data(soup):
     categories = {
         "Titles": [header.get_text() for header in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])],
         "Content": [para.get_text() for para in soup.find_all('p')],
-        "Links": [link.get('href') for link in soup.find_all('a')]
+        "Links": [link.get('href') for link in soup.find_all('a')],
+        "Images": [img.get('src') for img in soup.find_all('img')],
+        "Meta": [meta.get('content') for meta in soup.find_all('meta') if meta.get('content')]
     }
     return categories
 
@@ -55,13 +57,32 @@ def remove_empty_cells(df):
 
 def save_to_excel(categorized_data, domain_name):
     """Save the categorized data to an Excel file."""
+    from openpyxl.utils.dataframe import dataframe_to_rows
+    from openpyxl.styles import Border, Side, Alignment
+
+    border = Border(left=Side(style='thin'), 
+                    right=Side(style='thin'), 
+                    top=Side(style='thin'), 
+                    bottom=Side(style='thin'))
+    wrap_alignment = Alignment(wrap_text=True)
+
     today_date = datetime.today().strftime('%m%d%Y')
     file_name = f"{today_date}_{domain_name}_scraped_data.xlsx"
-    with pd.ExcelWriter(file_name) as writer:
+    with pd.ExcelWriter(file_name, engine='openpyxl') as writer:
         for category, items in categorized_data.items():
             df = pd.DataFrame(items, columns=[category])
             df_cleaned = remove_empty_cells(df)
             df_cleaned.to_excel(writer, sheet_name=category, index=False)
+
+            # get the workbook and the sheet of interest
+            workbook  = writer.book
+            worksheet = writer.sheets[category]
+
+            for row in worksheet.iter_rows():
+                for cell in row:
+                    cell.border = border
+                    cell.alignment = wrap_alignment
+
     return file_name
 
 def send_email_with_attachment(file_name, email_to, email_from, email_pass):
