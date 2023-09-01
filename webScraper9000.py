@@ -14,6 +14,16 @@ from email import encoders
 from sklearn.feature_extraction.text import TfidfVectorizer
 from gensim import corpora, models
 from summarizer import Summarizer
+from wordcloud import WordCloud
+import matplotlib.pyplot as plt
+from pymongo import MongoClient
+import nltk
+from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
+from sklearn.feature_extraction.text import CountVectorizer
+from nltk.util import ngrams
+nltk.download('wordnet')
+nltk.download('stopwords')
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -140,30 +150,92 @@ def analyze_with_ml(categorized_data):
 
     return analysis_results
 
+def visualize_word_cloud(text):
+    wordcloud = WordCloud(stopwords='english', background_color='white', width=800, height=600).generate(text)
+    plt.figure(figsize=(10, 8))
+    plt.imshow(wordcloud, interpolation='bilinear')
+    plt.axis('off')
+    plt.show()
+
+def connect_to_mongo(cluster_url):
+    """Establish connection to the MongoDB cluster."""
+    client = MongoClient(cluster_url)
+    return client
+
+def save_to_mongo(db_name, collection_name, data, cluster_url):
+    """Save data to MongoDB."""
+    client = connect_to_mongo(cluster_url)
+    db = client[db_name]
+    collection = db[collection_name]
+    collection.insert_many(data)
+
+def enhanced_preprocessing(text):
+    """Perform enhanced text preprocessing."""
+    # Tokenization
+    tokens = nltk.word_tokenize(text)
+
+    # Removing stop words
+    stop_words = set(stopwords.words('english'))
+    tokens = [token for token in tokens if token.lower() not in stop_words]
+
+    # Lemmatization
+    lemmatizer = WordNetLemmatizer()
+    tokens = [lemmatizer.lemmatize(token) for token in tokens]
+
+    # N-grams (here for bigrams)
+    bigrams = list(ngrams(tokens, 2))
+    tokens.extend([' '.join(bigram) for bigram in bigrams])
+
+    return ' '.join(tokens)
+    
 def main():
+    # Configuration and Initialization
     url = 'https://finance.yahoo.com'
     email_to = 'robert.taku.hartley@gmail.com'
     email, email_password = load_credentials()
-
     HEADERS = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36"
     }
-
+    
+    # Web Scraping
     html_content = get_html_content(url, HEADERS)
     if not html_content:
         logging.error("Could not retrieve the HTML content.")
         return
-
     soup = BeautifulSoup(html_content, 'html.parser')
+    
+    # Data Categorization and Saving to Excel
     categorized_data = categorize_data(soup)
     domain_name = urlparse(url).netloc.split('.')[-2]
     file_name = save_to_excel(categorized_data, domain_name)
+    
+    # Sending Email
     send_email_with_attachment(file_name, email_to, email, email_password)
-
+    
+    # Visualization
+    combined_content = ' '.join(categorized_data["Content"])
+    visualize_word_cloud(combined_content)
+    
+    # ML Analysis
     analysis_results = analyze_with_ml(categorized_data)
     for key, value in analysis_results.items():
         logging.info(f"{key}: {value}")
-
+    
+    # MongoDB Configuration
+    MONGO_CLUSTER_URL = "mongodb+srv://robbyhartley:<password>@webwisdomdbcluster.dt7kzx5.mongodb.net/?retryWrites=true&w=majority"
+    MONGO_DB_NAME = "web_scraping_data"
+    MONGO_COLLECTION_NAME = "yahoo_finance"
+    
+    # Text Preprocessing
+    processed_content = enhanced_preprocessing(combined_content)
+    
+    # Saving to MongoDB
+    data_to_save = {
+        "date": datetime.today().strftime('%Y-%m-%d'),
+        "url": url,
+        "content": processed_content
+    }
+    save_to_mongo(MONGO_DB_NAME, MONGO_COLLECTION_NAME, [data_to_save], MONGO_CLUSTER_URL)
 
 if __name__ == '__main__':
     main()
