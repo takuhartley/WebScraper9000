@@ -126,6 +126,7 @@ def send_email_with_attachment(file_name, email_to, email_from, email_pass):
     except Exception as e:
         logging.error(f"Failed to send email due to: {e}")
 
+
 def analyze_with_ml(categorized_data):
     """Perform ML analysis on the categorized data."""
     analysis_results = {}
@@ -153,6 +154,7 @@ def analyze_with_ml(categorized_data):
 
     return analysis_results
 
+
 def visualize_word_cloud(text):
     wordcloud = WordCloud(stopwords='english', background_color='white', width=800, height=600).generate(text)
     plt.figure(figsize=(10, 8))
@@ -160,10 +162,12 @@ def visualize_word_cloud(text):
     plt.axis('off')
     plt.show()
 
+
 def connect_to_mongo(cluster_url):
     """Establish connection to the MongoDB cluster."""
     client = MongoClient(cluster_url)
     return client
+
 
 def save_to_mongo(db_name, collection_name, data, cluster_url):
     """Save data to MongoDB."""
@@ -209,9 +213,12 @@ def test_mongo_connection(cluster_url):
     except Exception as e:
         logging.error(f"Failed to connect to MongoDB due to: {e}")
         return False
+    
+    
 def collection_exists(client, db_name, collection_name):
     """Check if a collection exists."""
     return collection_name in client[db_name].list_collection_names()
+
 
 def save_to_mongo(db_name, collection_name, data, cluster_url):
     """Save data to MongoDB."""
@@ -229,6 +236,7 @@ def save_to_mongo(db_name, collection_name, data, cluster_url):
     except Exception as e:
         logging.error(f"Failed to save to MongoDB due to: {e}")
         return False  # return False if there was an error
+            
             
 def main():
     # Configuration and Initialization
@@ -292,5 +300,7 @@ def main():
         logging.info("Data successfully saved to MongoDB.")
     else:
         logging.error("Failed to save data to MongoDB.")
+        
+        
 if __name__ == '__main__':
     main()
