@@ -22,41 +22,13 @@ from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from sklearn.feature_extraction.text import CountVectorizer
 from nltk.util import ngrams
+
 nltk.download('wordnet')
 nltk.download('stopwords')
+
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-
-def load_credentials():
-    """Load email credentials from environment."""
-    load_dotenv()
-    email = os.environ['EMAIL']
-    email_password = os.environ['EMAIL_PASSWORD']
-    return email, email_password
-
-
-def get_html_content(url, headers):
-    """Retrieve the HTML content of a given URL."""
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        return response.content
-    except requests.HTTPError as err:
-        logging.error(f"Failed to retrieve the web page due to {err}")
-        return None
-
-
-def categorize_data(soup):
-    """Categorize data from the HTML content."""
-    categories = {
-        "Titles": [header.get_text() for header in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])],
-        "Content": [para.get_text() for para in soup.find_all('p')],
-        "Links": [link.get('href') for link in soup.find_all('a')],
-        "Images": [img.get('src') for img in soup.find_all('img')],
-        "Meta": [meta.get('content') for meta in soup.find_all('meta') if meta.get('content')]
-    }
-    return categories
 
 
 def remove_empty_cells(df):
@@ -95,6 +67,38 @@ def save_to_excel(categorized_data, domain_name):
 
     return file_name
 
+
+def load_credentials():
+    """Load email credentials from environment."""
+    load_dotenv()
+    email = os.environ['EMAIL']
+    email_password = os.environ['EMAIL_PASSWORD']
+    return email, email_password
+
+
+def get_html_content(url, headers):
+    """Retrieve the HTML content of a given URL."""
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        return response.content
+    except requests.HTTPError as err:
+        logging.error(f"Failed to retrieve the web page due to {err}")
+        return None
+    
+    
+def categorize_data(soup):
+    """Categorize data from the HTML content."""
+    categories = {
+        "Titles": [header.get_text() for header in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])],
+        "Content": [para.get_text() for para in soup.find_all('p')],
+        "Links": [link.get('href') for link in soup.find_all('a')],
+        "Images": [img.get('src') for img in soup.find_all('img')],
+        "Meta": [meta.get('content') for meta in soup.find_all('meta') if meta.get('content')]
+    }
+    return categories
+
+    
 def send_email_with_attachment(file_name, email_to, email_from, email_pass):
     """Send email with an attachment."""
     try:
@@ -140,9 +144,8 @@ def analyze_with_ml(categorized_data):
         analysis_results["Important Terms from Content"] = vectorizer.get_feature_names_out()
 
         # Extractive Text Summarization on content
-        model = Summarizer()
         combined_content = ' '.join(categorized_data["Content"])
-        summary = model.predict(combined_content)
+        summary = summarize("Title (if any)", combined_content)
         analysis_results["Summarized Content"] = summary
 
     except Exception as e:
@@ -164,10 +167,16 @@ def connect_to_mongo(cluster_url):
 
 def save_to_mongo(db_name, collection_name, data, cluster_url):
     """Save data to MongoDB."""
-    client = connect_to_mongo(cluster_url)
-    db = client[db_name]
-    collection = db[collection_name]
-    collection.insert_many(data)
+    try:
+        client = connect_to_mongo(cluster_url)
+        db = client[db_name]
+        collection = db[collection_name]
+        collection.insert_many(data)
+        return True  # return True if data insertion was successful
+    except Exception as e:
+        logging.error(f"Failed to save to MongoDB due to: {e}")
+        return False  # return False if there was an error
+
 
 def enhanced_preprocessing(text):
     """Perform enhanced text preprocessing."""
@@ -187,10 +196,46 @@ def enhanced_preprocessing(text):
     tokens.extend([' '.join(bigram) for bigram in bigrams])
 
     return ' '.join(tokens)
-    
+
+
+def test_mongo_connection(cluster_url):
+    """Test MongoDB connection."""
+    try:
+        client = connect_to_mongo(cluster_url)
+        # Fetch the server information to verify the connection
+        server_info = client.server_info()
+        logging.info(f"Successfully connected to MongoDB. Server version: {server_info['version']}")
+        return True
+    except Exception as e:
+        logging.error(f"Failed to connect to MongoDB due to: {e}")
+        return False
+def collection_exists(client, db_name, collection_name):
+    """Check if a collection exists."""
+    return collection_name in client[db_name].list_collection_names()
+
+def save_to_mongo(db_name, collection_name, data, cluster_url):
+    """Save data to MongoDB."""
+    try:
+        client = connect_to_mongo(cluster_url)
+        
+        if collection_exists(client, db_name, collection_name):
+            logging.error(f"Collection '{collection_name}' already exists.")
+            return False
+        
+        db = client[db_name]
+        collection = db[collection_name]
+        collection.insert_many(data)
+        return True  # return True if data insertion was successful
+    except Exception as e:
+        logging.error(f"Failed to save to MongoDB due to: {e}")
+        return False  # return False if there was an error
+            
 def main():
     # Configuration and Initialization
-    url = 'https://finance.yahoo.com'
+    url = input("Please enter the URL you want to scrape: ")
+    if not url.startswith('http'):
+        logging.error("Please enter a valid URL.")
+        return
     email_to = 'robert.taku.hartley@gmail.com'
     email, email_password = load_credentials()
     HEADERS = {
@@ -221,10 +266,15 @@ def main():
     for key, value in analysis_results.items():
         logging.info(f"{key}: {value}")
     
-    # MongoDB Configuration
-    MONGO_CLUSTER_URL = "mongodb+srv://robbyhartley:<password>@webwisdomdbcluster.dt7kzx5.mongodb.net/?retryWrites=true&w=majority"
-    MONGO_DB_NAME = "web_scraping_data"
-    MONGO_COLLECTION_NAME = "yahoo_finance"
+     # MongoDB Configuration
+    MONGO_CLUSTER_URL = os.getenv("MONGO_CLUSTER_URL")
+    MONGO_DB_NAME = os.getenv("MONGO_DB_NAME")
+    # Get the MongoDB collection name from user
+    MONGO_COLLECTION_NAME = input("Please enter the MongoDB collection name: ")
+     # Test MongoDB Connection
+    if not test_mongo_connection(MONGO_CLUSTER_URL):
+        logging.error("Exiting the script as MongoDB connection failed.")
+        return
     
     # Text Preprocessing
     processed_content = enhanced_preprocessing(combined_content)
@@ -235,7 +285,12 @@ def main():
         "url": url,
         "content": processed_content
     }
-    save_to_mongo(MONGO_DB_NAME, MONGO_COLLECTION_NAME, [data_to_save], MONGO_CLUSTER_URL)
+    save_successful = save_to_mongo(MONGO_DB_NAME, MONGO_COLLECTION_NAME, [data_to_save], MONGO_CLUSTER_URL)
 
+
+    if save_successful:
+        logging.info("Data successfully saved to MongoDB.")
+    else:
+        logging.error("Failed to save data to MongoDB.")
 if __name__ == '__main__':
     main()
